@@ -1,0 +1,26 @@
+ticker_name: "^GSPC"
+start_date: "2000-01-01"
+target_num: 3
+
+features:
+  - 'RSI'
+  - 'Volatility'
+  - 'Dist_SMA_10'
+  - 'Dist_SMA_50'
+  - 'Dist_SMA_200'
+  - 'Log_Volume'
+  - 'Fed_Rate'
+  - 'Unemployment'
+  - 'Inflation_var'
+  - 'VIX_Change'
+  - 'Ret_L1'
+
+# Paramètres globaux de trading
+horizon: 5
+frais: 0
+
+# Les seuils de trading que tu veux tester dans le GridSearch
+trading_configs:
+  - {seuil_achat: 0.501, seuil_short: 0.499}
+  - {seuil_achat: 0.550, seuil_short: 0.450}
+  - {seuil_achat: 0.520, seuil_short: 0.480}

@@ -1,0 +1,47 @@
+# Here you can define all your datasets by using simple YAML syntax.
+#
+# Documentation for this file format can be found in "The Data Catalog"
+# Link: https://docs.kedro.org/en/stable/catalog-data/introduction/#data-catalog
+# Le résultat brut de dl_data
+market_data_raw:
+  type: pandas.ParquetDataset
+  filepath: data/01_raw/market_data_raw.parquet
+
+# Les sorties de preprocess_data
+X_train:
+  type: pandas.ParquetDataset
+  filepath: data/05_model_input/X_train.parquet
+X_val:
+  type: pandas.ParquetDataset
+  filepath: data/05_model_input/X_val.parquet
+X_test:
+  type: pandas.ParquetDataset
+  filepath: data/05_model_input/X_test.parquet
+
+y_train:
+  type: pandas.ParquetDataset
+  filepath: data/05_model_input/y_train.parquet
+
+y_val:
+  type: pandas.ParquetDataset
+  filepath: data/05_model_input/y_val.parquet
+
+y_test:
+  type: pandas.ParquetDataset
+  filepath: data/05_model_input/y_test.parquet
+
+market_logs_test:
+  type: pandas.ParquetDataset
+  filepath: data/05_model_input/market_logs_test.parquet
+
+model_trained:
+  type: pickle.PickleDataset
+  filepath: data/06_models/sp500_xgb_model.pkl
+
+best_hyperparameters:
+  type: json.JSONDataset
+  filepath: data/07_model_output/best_params.json
+
+best_trading_params:
+  type: json.JSONDataset
+  filepath: data/07_model_output/best_trading_params.json

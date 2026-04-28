@@ -1,0 +1,54 @@
+[build-system]
+requires = [
+    "setuptools",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+requires-python = ">=3.12"
+name = "sp500_trading"
+readme = "README.md"
+dynamic = [
+    "version",
+]
+dependencies = [
+    "ipython>=8.10",
+    "jupyterlab>=3.0",
+    "notebook",
+    "kedro~=1.3.1",
+    "pandas>=2.3.3",
+    "yfinance>=1.3.0",
+    "pandas-ta>=0.4.71b0",
+    "fredapi>=0.5.2",
+    "xgboost>=3.2.0",
+    "mlflow>=3.11.1",
+    "plotly>=6.7.0",
+    "scikit-learn>=1.8.0",
+    "kedro-datasets[pandas-parquetdataset]>=9.3.0",
+    "optuna>=4.8.0",
+]
+
+[project.scripts]
+sp500-trading = "sp500_trading.__main__:main"
+
+[project.entry-points."kedro.hooks"]
+
+[tool.setuptools.dynamic.version]
+attr = "sp500_trading.__version__"
+
+[tool.setuptools.packages.find]
+where = [
+    "src",
+]
+namespaces = false
+
+[tool.kedro]
+package_name = "sp500_trading"
+project_name = "sp500_trading"
+kedro_init_version = "1.3.1"
+tools = "['None']"
+example_pipeline = "False"
+source_dir = "src"
+
+[tool.kedro_telemetry]
+project_id = "f8cfe3a5c6a24f178fc3c755d67beb81"
