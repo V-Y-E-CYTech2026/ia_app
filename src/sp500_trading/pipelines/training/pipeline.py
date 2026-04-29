@@ -20,7 +20,7 @@ def create_pipeline(**kwargs) -> Pipeline:
         # Étape 3
         node(
             func=evaluate_and_search_thresholds,
-            inputs=["model_trained", "X_test", "market_logs_test", "params:trading_configs", "params:horizon"],
+            inputs=["model_trained", "X_test", "market_logs_test", "params:horizon"],
             outputs="best_trading_params",
             name="grid_search_thresholds_node",
         ),
