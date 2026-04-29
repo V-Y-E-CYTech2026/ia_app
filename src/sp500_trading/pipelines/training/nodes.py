@@ -17,10 +17,10 @@ def hyperparameter_optimization(X_train, y_train, X_val, y_val):
         # Paramètres optimisés pour la vitesse et la robustesse
         param = {
             # 1. On garde le nombre d'estimateurs, mais on ajoute un early stopping au besoin
-            "n_estimators": trial.suggest_int("n_estimators", 300, 1500),
+            "n_estimators": trial.suggest_int("n_estimators", 150, 1500),
 
             # 2. Profondeur plus faible pour la généralisation
-            "max_depth": trial.suggest_int("max_depth", 3, 6),
+            "max_depth": trial.suggest_int("max_depth", 2, 8),
 
             # 3. Apprentissage lent = meilleur modèle
             "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.05, log=True),
@@ -30,7 +30,7 @@ def hyperparameter_optimization(X_train, y_train, X_val, y_val):
             "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 10.0, log=True),
 
             # 5. Plus conservateur sur le poids des enfants
-            "min_child_weight": trial.suggest_int("min_child_weight", 10, 100),
+            "min_child_weight": trial.suggest_int("min_child_weight", 6, 100),
 
             # 6. Échantillonnage pour ajouter du hasard (Bruit de combat)
             "subsample": trial.suggest_float("subsample", 0.5, 0.8),
@@ -87,7 +87,8 @@ def evaluate_and_search_thresholds(model, X_test, market_logs_test, horizon):
     probs = model.predict_proba(X_test)[:, 1]
     mkt_return = market_logs_test.values.ravel()
     mean_p = probs.mean()
-
+    print(f"Probabilité Min: {probs.min()*100:.2f}")
+    print(f"Probabilité Max: {probs.max()*100:.2f}")
     # On définit des listes d'offsets (tu peux les différencier si besoin)
     test_offsets_achat = [0,0.01, 0.05,0.06, 0.07, 0.10, 0.15, 0.20]
     test_offsets_short = [0.01, 0.05, 0.07, 0.10, 0.15,0.17, 0.20,0.22,0.25,0.3,0.4]
@@ -175,3 +176,91 @@ def evaluate_and_search_thresholds(model, X_test, market_logs_test, horizon):
     print("--deugé",best_config)
     # Pas besoin de refaire le dictionnaire, ils sont déjà en float
     return best_config
+
+
+import plotly.graph_objects as go
+import pandas as pd
+import mlflow
+from sklearn.calibration import calibration_curve
+
+
+def plot_feature_importance(model, X_train):
+    """Calcule et affiche les variables les plus importantes."""
+    importances = model.feature_importances_
+    df_imp = pd.DataFrame({
+        "feature": X_train.columns,
+        "importance": importances
+    }).sort_values("importance", ascending=False).head(20)
+
+    fig = go.Figure(go.Bar(
+        x=df_imp["importance"],
+        y=df_imp["feature"],
+        orientation='h',
+        marker_color='gold'
+    ))
+    fig.update_layout(title="Top 20 Features", template="plotly_dark", yaxis_autorange="reversed")
+
+    mlflow.log_figure(fig, "feature_importance.html")
+    return df_imp
+
+
+def plot_model_calibration(model, X_test, y_test):
+    """Vérifie si les probabilités du modèle sont réalistes."""
+    probs = model.predict_proba(X_test)[:, 1]
+    fop, mpv = calibration_curve(y_test, probs, n_bins=10)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='Parfait', line=dict(dash='dash')))
+    fig.add_trace(go.Scatter(x=mpv, y=fop, mode='markers+lines', name='Modèle'))
+
+    fig.update_layout(title="Courbe de Calibration", template="plotly_dark")
+    mlflow.log_figure(fig, "calibration_curve.html")
+
+
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+import numpy as np
+
+
+def log_model_metrics(model, X_test, y_test, best_thresholds, market_logs_test, horizon):
+    """Calcule et log toutes les métriques (Modèle + Trading) dans MLflow."""
+
+    # --- 1. MÉTRIQUES DE CLASSIFICATION ---
+    probs = model.predict_proba(X_test)[:, 1]
+    # On utilise le seuil d'achat pour la classification binaire de base
+    preds = (probs > best_thresholds['seuil_achat']).astype(int)
+
+    mcc = matthews_corrcoef(y_test, preds)
+    acc = accuracy_score(y_test, preds)
+
+    mlflow.log_metric("model_mcc", mcc)
+    mlflow.log_metric("model_accuracy", acc)
+
+    # --- 2. MÉTRIQUES DE TRADING (BACKTEST) ---
+    mkt_return = market_logs_test.values.ravel()
+    signals = np.zeros(len(probs))
+
+    for i in range(0, len(probs), horizon):
+        p = probs[i]
+        pos = 1 if p > best_thresholds['seuil_achat'] else (-1 if p < best_thresholds['seuil_short'] else 0)
+        end = min(i + horizon, len(probs))
+        signals[i:end] = pos
+
+    strat_ret = signals * mkt_return
+    cum_strat = np.exp(np.cumsum(strat_ret))
+
+    # Calcul du Sharpe Ratio (simplifié)
+    if strat_ret.std() != 0:
+        sharpe = (strat_ret.mean() / strat_ret.std()) * np.sqrt(252)  # Annualisé
+    else:
+        sharpe = 0
+
+    # Calcul du Maximum Drawdown
+    peak = np.maximum.accumulate(cum_strat)
+    drawdown = (cum_strat - peak) / peak
+    max_dd = drawdown.min()
+
+    mlflow.log_metric("trading_sharpe", float(sharpe))
+    mlflow.log_metric("trading_max_drawdown", float(max_dd))
+    mlflow.log_metric("trading_final_return", float(cum_strat[-1]))
+
+    print(f"Metrics loggées - MCC: {mcc:.4f}, Sharpe: {sharpe:.2f}, MaxDD: {max_dd:.2f}")
