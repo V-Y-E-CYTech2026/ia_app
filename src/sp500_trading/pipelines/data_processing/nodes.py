@@ -4,20 +4,22 @@ import pandas_ta as ta
 import numpy as np
 from fredapi import Fred
 
-#TODO: Mettre un env pour stocker la clé api !!!!!
 FRED_API_KEY = '88f89b6134c3f03d05307558eeeafcf7'
 
 
 def dl_data(name: str, start_date: str) -> pd.DataFrame:
-    print("Début du téléchargement")
     df = yf.download(name, start=start_date)
 
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
     df['RSI'] = ta.rsi(df['Close'], length=14)
+    df['MFI'] = ta.mfi(df['High'], df['Low'], df['Close'], df['Volume'], length=14)
+    df['ADX'] = ta.adx(df['High'], df['Low'], df['Close'], length=14)['ADX_14']
+
     df['real_logs'] = np.log(df['Close'] / df['Close'].shift(1))
     df['Volatility'] = df['Close'].pct_change().rolling(21).std()
+    df['Z_Score_10'] = (df['Close'] - df['Close'].rolling(10).mean()) / df['Close'].rolling(10).std()
 
     df['SMA_50'] = ta.sma(df['Close'], length=50)
     df['SMA_200'] = ta.sma(df['Close'], length=200)
@@ -39,7 +41,6 @@ def dl_data(name: str, start_date: str) -> pd.DataFrame:
     df['VIX'] = vix.shift(1)
     df['VIX_Change'] = df['VIX'].diff()
 
-    print("Téléchargement API FRED")
     try:
         fred = Fred(api_key=FRED_API_KEY)
         yield_10y = fred.get_series('DGS10', observation_start=start_date)
@@ -54,8 +55,8 @@ def dl_data(name: str, start_date: str) -> pd.DataFrame:
             'Unemployment': unemployment,
             'Inflation_Idx': inflation_idx,
             'stress_fed': stress_fed,
-            "yield_10y": yield_10y,
-            "yield_2y": yield_2y
+            'yield_10y': yield_10y,
+            'yield_2y': yield_2y
         })
         macro_df.index = pd.to_datetime(macro_df.index)
 
@@ -69,27 +70,25 @@ def dl_data(name: str, start_date: str) -> pd.DataFrame:
         df['Yield_Spread_Change'] = df['Yield_Spread'].diff()
 
     except Exception as e:
-        print(f"Problème avec FRED : {e}")
+        print(f"Error: {e}")
 
     df['target_1'] = (df['Close'].shift(-1) > df["Close"]).astype(int)
-    df["target_2"] = np.log(df["Close"].shift(-1) / df["Close"])
+    df['target_2'] = np.log(df["Close"].shift(-1) / df["Close"])
     df['5j'] = df['real_logs'].rolling(window=5).sum().shift(-5)
     df['target_3'] = (df['5j'] > 0).astype(int)
 
     df.dropna(inplace=True)
-    print("Ingestion terminée")
-
     return df
 
 
 def preprocess_data(data: pd.DataFrame, features: list, target_num: int):
-    print("Début du prétraitement")
-    cols_to_fix = ['RSI', 'Volatility', 'Dist_SMA_10', 'Dist_SMA_50', "Dist_SMA_200"]
+    cols_to_fix = ['RSI', 'MFI', 'ADX', 'Volatility', 'Z_Score_10', 'Dist_SMA_10', 'Dist_SMA_50', 'Dist_SMA_200']
     data[cols_to_fix] = data[cols_to_fix].shift(1)
     data.dropna(inplace=True)
 
     X = data[features]
     market_logs = data[["real_logs"]]
+
     if target_num == 1:
         y = data[["target_1"]]
     elif target_num == 2:
@@ -97,7 +96,7 @@ def preprocess_data(data: pd.DataFrame, features: list, target_num: int):
     elif target_num == 3:
         y = data[["target_3"]]
     else:
-        raise ValueError("Le numéro de target doit être 1, 2 ou 3")
+        raise ValueError("Invalid target_num")
 
     split_val = int(len(data) * 0.65)
     split_test = int(len(data) * 0.85)
@@ -105,9 +104,12 @@ def preprocess_data(data: pd.DataFrame, features: list, target_num: int):
     X_train = X.iloc[:split_val]
     X_val = X.iloc[split_val:split_test]
     X_test = X.iloc[split_test:]
+
     y_train = y.iloc[:split_val]
     y_val = y.iloc[split_val:split_test]
     y_test = y.iloc[split_test:]
 
     market_logs_test = market_logs.iloc[split_test:]
-    return X_train, X_val, X_test, y_train, y_val, y_test, market_logs_test
+    market_logs_val = market_logs.iloc[split_val:split_test]
+
+    return X_train, X_val, X_test, y_train, y_val, y_test, market_logs_test, market_logs_val

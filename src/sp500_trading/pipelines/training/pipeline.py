@@ -11,26 +11,26 @@ from .nodes import (
 def create_pipeline(**kwargs) -> Pipeline:
     return pipeline(
         [
-            # 1. Optimisation des hyperparamètres avec Optuna
+            # Optimisation des hyperparamètres avec Optuna
             node(
                 func=hyperparameter_optimization,
-                inputs=["X_train", "y_train", "X_val", "y_val"],
+                inputs=["X_train", "y_train","params:horizon"],
                 outputs="best_hyperparams",
                 name="hyperparameter_optimization_node",
             ),
 
-            # 2. Entraînement du modèle final avec les meilleurs paramètres
+            # Entraînement du modèle final avec les meilleurs paramètres
             node(
                 func=train_best_model,
-                inputs=["X_train", "y_train", "best_hyperparams"],
+                inputs=["X_train", "y_train", "best_hyperparams","params:horizon"],
                 outputs="best_model",
                 name="train_best_model_node",
             ),
 
-            # 3. Recherche des seuils optimaux (Achat/Short) et Backtest
+            # Recherche des seuils optimaux (Achat/Short) et Backtest
             node(
                 func=evaluate_and_search_thresholds,
-                inputs=["best_model", "X_test", "market_logs_test", "params:horizon"],
+                inputs=["best_model", "X_val", "market_logs_val", "params:horizon"],
                 outputs="best_thresholds",
                 name="evaluate_thresholds_node",
             ),
@@ -43,7 +43,7 @@ def create_pipeline(**kwargs) -> Pipeline:
                 name="feature_importance_node",
             ),
 
-            # 5. Courbe de calibration (Fiabilité des probabilités)
+            #Courbe de calibration (Fiabilité des probabilités)
             node(
                 func=plot_model_calibration,
                 inputs=["best_model", "X_test", "y_test"],

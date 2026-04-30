@@ -34,6 +34,10 @@ market_logs_test:
   type: pandas.ParquetDataset
   filepath: data/05_model_input/market_logs_test.parquet
 
+market_logs_val:
+  type: pandas.ParquetDataset
+  filepath: data/05_model_input/market_logs_val.parquet
+
 model_trained:
   type: pickle.PickleDataset
   filepath: data/06_models/sp500_xgb_model.pkl

@@ -4,16 +4,28 @@ target_num: 1
 
 features:
   - 'RSI'
+  - 'MFI'
+  - 'ADX'
+  - 'Z_Score_10'
   - 'Volatility'
   - 'Dist_SMA_10'
   - 'Dist_SMA_50'
   - 'Dist_SMA_200'
   - 'Log_Volume'
+  - 'Log_Vol_Change'
+  - 'Trend_Signal'
+  - 'Ret_L1'
+  - 'Ret_L2'
+  - 'VIX'
+  - 'VIX_Change'
   - 'Fed_Rate'
   - 'Unemployment'
   - 'Inflation_var'
-  - 'VIX_Change'
-  - 'Ret_L1'
+  - 'stress_fed'
+  - 'yield_10y'
+  - 'yield_2y'
+  - 'Yield_Spread'
+  - 'Yield_Spread_Change'
 
 # Paramètres globaux de trading
 horizon: 1

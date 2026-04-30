@@ -12,7 +12,7 @@ def create_pipeline(**kwargs) -> Pipeline:
         node(
             func=preprocess_data,
             inputs=["market_data_raw", "params:features", "params:target_num"],
-            outputs=["X_train", "X_val", "X_test", "y_train", "y_val", "y_test", "market_logs_test"],
+            outputs=["X_train", "X_val", "X_test", "y_train", "y_val", "y_test", "market_logs_test","market_logs_val"],
             name="preprocess_data_node"
         )
     ])
