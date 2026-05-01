@@ -3,84 +3,132 @@ import numpy as np
 import optuna
 import mlflow
 import plotly.graph_objects as go
-from xgboost import XGBClassifier
-from sklearn.metrics import accuracy_score, matthews_corrcoef
+from xgboost import XGBClassifier, XGBRegressor
+from sklearn.metrics import matthews_corrcoef, mean_squared_error, mean_absolute_error
 from optuna.samplers import TPESampler
 from sklearn.model_selection import TimeSeriesSplit
-from sklearn.calibration import calibration_curve, CalibratedClassifierCV
+from sklearn.calibration import CalibratedClassifierCV
+from mlflow.models.signature import infer_signature
 
+def hyperparameter_optimization(X_train, y_train, horizon, model_type="classification"):
+    mlflow.set_tag("mlflow.runName", f"optimisation_{model_type}")
+    mlflow.set_tag("pipeline", "model_training")
+    mlflow.set_tag("etape", "hyperparametres")
+    mlflow.log_param("horizon", horizon)
+    mlflow.log_param("model_type", model_type)
+    mlflow.log_param("feature_names", ",".join(X_train.columns.tolist()))
 
-def hyperparameter_optimization(X_train, y_train, horizon):
     tscv = TimeSeriesSplit(n_splits=3)
 
     def objective(trial):
         param = {
-            "n_estimators": trial.suggest_int("n_estimators", 150, 2000),
-            "max_depth": trial.suggest_int("max_depth", 2, 6),
-            "learning_rate": trial.suggest_float("learning_rate", 0.001, 0.05, log=True),
-            "reg_alpha": trial.suggest_float("reg_alpha", 1e-3, 50.0, log=True),
-            "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 50.0, log=True),
+            "n_estimators": trial.suggest_int("n_estimators", 150, 600),
+            "max_depth": trial.suggest_int("max_depth", 2, 4),
+            "learning_rate": trial.suggest_float("learning_rate", 0.001, 0.5, log=True),
+            "reg_alpha": trial.suggest_float("reg_alpha", 1e-3, 5, log=True),
+            "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 5, log=True),
             "min_child_weight": trial.suggest_int("min_child_weight", 1, 50),
             "subsample": trial.suggest_float("subsample", 0.5, 0.8),
             "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 0.8),
-            "gamma": trial.suggest_float("gamma", 0, 0.7),
-            "scale_pos_weight": trial.suggest_float("scale_pos_weight", 0.80, 1.0)
+            "gamma": trial.suggest_float("gamma", 0, 0.7)
         }
+
+        if model_type == "classification":
+            param["scale_pos_weight"] = trial.suggest_float("scale_pos_weight", 0.80, 1.0)
+            param.update({
+                "n_estimators": trial.suggest_int("n_estimators", 150, 1200),
+                "max_depth": trial.suggest_int("max_depth", 2, 8),
+                "learning_rate": trial.suggest_float("learning_rate", 0.001, 0.05, log=True),
+                "reg_alpha": trial.suggest_float("reg_alpha", 1e-3, 10.0, log=True),
+                "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 10.0, log=True),
+                "min_child_weight": trial.suggest_int("min_child_weight", 1, 20)
+            })
 
         scores = []
         for train_idx, val_idx in tscv.split(X_train):
             X_tr, X_v = X_train.iloc[train_idx], X_train.iloc[val_idx]
             y_tr, y_v = y_train.iloc[train_idx].values.ravel(), y_train.iloc[val_idx].values.ravel()
 
-            model = XGBClassifier(**param, early_stopping_rounds=10, n_jobs=-1, random_state=42)
-            model.fit(X_tr.iloc[::horizon], y_tr[::horizon], eval_set=[(X_v, y_v)], verbose=False)
-
-            preds = model.predict(X_v)
-            scores.append(matthews_corrcoef(y_v, preds))
+            if model_type == "classification":
+                model = XGBClassifier(**param, early_stopping_rounds=10, n_jobs=-1, random_state=42)
+                model.fit(X_tr.iloc[::horizon], y_tr[::horizon], eval_set=[(X_v, y_v)], verbose=False)
+                preds = model.predict(X_v)
+                scores.append(matthews_corrcoef(y_v, preds))
+            else:
+                model = XGBRegressor(**param, early_stopping_rounds=10, n_jobs=-1, random_state=42)
+                model.fit(X_tr.iloc[::horizon], y_tr[::horizon], eval_set=[(X_v, y_v)], verbose=False)
+                preds = model.predict(X_v)
+                scores.append(-mean_squared_error(y_v, preds))
 
         return np.mean(scores)
 
     sampler = TPESampler(seed=42)
     study = optuna.create_study(direction="maximize", sampler=sampler)
-    study.optimize(objective, n_trials=200)
+    study.optimize(objective, n_trials=25)
 
-    print(f"Meilleur MCC trouve : {study.best_value:.4f}")
-    print(f"Meilleurs parametres : {study.best_params}")
+    mlflow.log_params(study.best_params)
+    mlflow.log_metric("best_cv_score", study.best_value)
 
     return study.best_params
 
 
-def train_best_model(X_train, y_train, best_params, horizon):
+def train_best_model(X_train, y_train, best_params, horizon, model_type="classification"):
+    mlflow.set_tag("mlflow.runName", f"entrainement_{model_type}")
+    mlflow.set_tag("pipeline", "model_training")
+    mlflow.set_tag("etape", "entrainement_final")
+
     params = best_params.copy()
     params.pop("weight_ratio", None)
 
-    base_model = XGBClassifier(**params, n_jobs=-1, random_state=42)
+    if model_type == "classification":
+        base_model = XGBClassifier(**params, n_jobs=-1, random_state=42)
+        final_model = CalibratedClassifierCV(base_model, method='sigmoid', cv=5)
+    else:
+        final_model = XGBRegressor(**params, objective='reg:squarederror', n_jobs=-1, random_state=42)
 
-    calibrated_model = CalibratedClassifierCV(base_model, method='isotonic', cv=5)
+    # --- ÉTAPE 1 : ENTRAÎNEMENT (Toujours en premier !) ---
+    final_model.fit(X_train.iloc[::horizon], y_train.values.ravel()[::horizon])
 
-    calibrated_model.fit(X_train.iloc[::horizon], y_train.values.ravel()[::horizon])
+    # --- ÉTAPE 2 : SIGNATURE (Maintenant le modèle est "fitted", il peut prédire) ---
+    # On prend un petit échantillon pour la signature
+    sample_input = X_train.head(3)
+    sample_output = final_model.predict(sample_input)
+    signature = infer_signature(sample_input, sample_output)
 
-    return calibrated_model
+    # --- ÉTAPE 3 : LOGGING ---
+    mlflow.sklearn.log_model(
+        sk_model=final_model,
+        artifact_path="model",
+        signature=signature
+    )
 
+    # On log aussi les noms des colonnes pour ton Streamlit
+    mlflow.log_param("feature_names", ",".join(X_train.columns.tolist()))
+    mlflow.log_param("model_type", model_type)
+    mlflow.log_param("horizon", horizon)
 
-def evaluate_and_search_thresholds(model, X_val, market_logs_val, horizon):
-    probs = model.predict_proba(X_val)[:, 1]
+    return final_model
+
+def evaluate_and_search_thresholds(model, X_val, market_logs_val, horizon, model_type="classification"):
+    mlflow.set_tag("mlflow.runName", f"evaluation_{model_type}")
+    mlflow.set_tag("pipeline", "model_training")
+    mlflow.set_tag("etape", "recherche_seuils")
+
+    if model_type == "classification":
+        probs = model.predict_proba(X_val)[:, 1]
+        test_offsets_achat = [-0.02, -0.01, 0, 0.01, 0.02, 0.05, 0.10, 0.15]
+        test_offsets_short = [0.05, 0.10, 0.11, 0.12, 0.13, 0.15, 0.20, 0.25]
+        mean_p = probs.mean()
+    else:
+        probs = model.predict(X_val)/1000
+        test_offsets_achat = [0.0, 0.0005, 0.001, 0.002, 0.005, 0.01]
+        test_offsets_short = [0.0, 0.0005, 0.001, 0.002, 0.005, 0.01]
+        mean_p = 0.0
+
     mkt_return = market_logs_val.values.ravel()
-    mean_p = probs.mean()
-
-    print(f"Probabilite Min: {probs.min() * 100:.2f}")
-    print(f"Probabilite Max: {probs.max() * 100:.2f}")
-    print(f"Probabilite Moyenne: {mean_p:.4f}")
-
-    test_offsets_achat = [-0.02, -0.01, 0, 0.01, 0.02, 0.05, 0.10,0.15]
-
-    test_offsets_short = [0.02, 0.05, 0.08]
-    # test_offsets_short = [0.05, 0.10,0.11,0.12,0.13, 0.15, 0.20, 0.25]
-
     best_return = -np.inf
     best_config = {}
     best_df_res = None
-    best_signals = None
 
     fig = go.Figure()
     cum_mkt = np.exp(np.cumsum(mkt_return))
@@ -88,10 +136,16 @@ def evaluate_and_search_thresholds(model, X_val, market_logs_val, horizon):
 
     for off_a in test_offsets_achat:
         for off_s in test_offsets_short:
-            config = {
-                'seuil_achat': float(round(mean_p + off_a, 4)),
-                'seuil_short': float(round(mean_p - off_s, 4))
-            }
+            if model_type == "classification":
+                config = {
+                    'seuil_achat': float(round(mean_p + off_a, 4)),
+                    'seuil_short': float(round(mean_p - off_s, 4))
+                }
+            else:
+                config = {
+                    'seuil_achat': float(off_a),
+                    'seuil_short': float(-off_s)
+                }
 
             signals = np.zeros(len(probs))
             for i in range(0, len(probs), horizon):
@@ -104,153 +158,35 @@ def evaluate_and_search_thresholds(model, X_val, market_logs_val, horizon):
             cum_strat = np.exp(np.cumsum(strat_ret))
             final_perf = cum_strat[-1]
 
+            nb_achat = np.sum(signals[::horizon] == 1)
+            nb_short = np.sum(signals[::horizon] == -1)
+            nb_neutre = np.sum(signals[::horizon] == 0)
+            print(
+                f"Config -> A: {config['seuil_achat']:.4f} | S: {config['seuil_short']:.4f} | Ret: {final_perf:.2f} | Positions: [A:{nb_achat}, S:{nb_short}, N:{nb_neutre}]")
+
             fig.add_trace(go.Scatter(
                 x=X_val.index, y=cum_strat,
-                name=f"A:{config['seuil_achat']} S:{config['seuil_short']}",
-                line=dict(color='gray', width=0.5),
-                opacity=0.2,
-                showlegend=False
+                line=dict(color='gray', width=0.5), opacity=0.2, showlegend=False
             ))
 
             if final_perf > best_return:
                 best_return = final_perf
                 best_config = config
-                best_signals = signals
                 best_df_res = pd.DataFrame(index=X_val.index, data={'strat_ret': strat_ret})
 
-    cum_best = np.exp(np.cumsum(best_df_res['strat_ret']))
-    fig.add_trace(go.Scatter(
-        x=X_val.index, y=cum_best,
-        name=f"BEST (A:{best_config['seuil_achat']} S:{best_config['seuil_short']})",
-        line=dict(color='gold', width=4)
-    ))
-
-    nb_achats = np.sum(best_signals[::horizon] == 1)
-    nb_shorts = np.sum(best_signals[::horizon] == -1)
-    nb_neutre = np.sum(best_signals[::horizon] == 0)
-
-    changements = 0
-    for i in range(horizon, len(best_signals), horizon):
-        if best_signals[i] != best_signals[i - horizon]:
-            changements += 1
-
-    print(f"Seuils Optimaux -> Achat: {best_config['seuil_achat']} | Short: {best_config['seuil_short']}")
-    print(f"ACHATS: {nb_achats} | SHORTS: {nb_shorts} | NEUTRES: {nb_neutre}")
-    print(f"CHANGEMENTS de position : {changements}")
+    print("-" * 30)
+    print(f"MEILLEURS SEUILS VAL -> Achat: {best_config['seuil_achat']} | Short: {best_config['seuil_short']}")
     print(f"Rendement final : {best_return:.2f}")
+    print("-" * 30)
 
-    fig.update_layout(
-        title=f"Grille de Seuils Independants - Meilleur: {best_return:.2f}",
-        template="plotly_dark",
-        xaxis_title="Date",
-        yaxis_title="Performance (Base 1.0)"
-    )
+    mlflow.log_params(best_config)
+    mlflow.log_metric("rendement_strategie_max", best_return)
+    mlflow.log_metric("rendement_sp500", cum_mkt[-1])
 
-    mlflow.log_figure(fig, "all_thresholds_comparison.html")
+    cum_best = np.exp(np.cumsum(best_df_res['strat_ret']))
+    fig.add_trace(go.Scatter(x=X_val.index, y=cum_best, line=dict(color='gold', width=4), name="BEST CONFIG"))
+
+    fig.update_layout(title=f"Grille de Seuils - Meilleur: {best_return:.2f}", template="plotly_dark")
+    mlflow.log_figure(fig, "val_thresholds_comparison.html")
+
     return best_config
-
-
-def plot_feature_importance(model, X_train):
-    if hasattr(model, "calibrated_classifiers_"):
-        importances = np.mean(
-            [clf.estimator.feature_importances_ for clf in model.calibrated_classifiers_],
-            axis=0
-        )
-    else:
-        try:
-            importances = model.feature_importances_
-        except AttributeError:
-            importances = model.estimator.feature_importances_
-
-    df_imp = pd.DataFrame({
-        "feature": X_train.columns,
-        "importance": importances
-    }).sort_values("importance", ascending=False).head(20)
-
-    fig = go.Figure(go.Bar(
-        x=df_imp["importance"],
-        y=df_imp["feature"],
-        orientation='h',
-        marker_color='gold'
-    ))
-    fig.update_layout(
-        title="Top 20 Features",
-        template="plotly_dark",
-        yaxis_autorange="reversed"
-    )
-
-    mlflow.log_figure(fig, "feature_importance.html")
-    return df_imp
-
-
-def plot_model_calibration(model, X_test, y_test):
-    probs = model.predict_proba(X_test)[:, 1]
-    fop, mpv = calibration_curve(y_test, probs, n_bins=10)
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='Parfait', line=dict(dash='dash')))
-    fig.add_trace(go.Scatter(x=mpv, y=fop, mode='markers+lines', name='Modele'))
-
-    fig.update_layout(title="Courbe de Calibration", template="plotly_dark")
-    mlflow.log_figure(fig, "calibration_curve.html")
-
-
-def log_model_metrics(model, X_test, y_test, best_thresholds, market_logs_test, horizon):
-    probs = model.predict_proba(X_test)[:, 1]
-    preds = (probs > best_thresholds['seuil_achat']).astype(int)
-
-    mcc = matthews_corrcoef(y_test, preds)
-    acc = accuracy_score(y_test, preds)
-
-    mlflow.log_metric("model_mcc", mcc)
-    mlflow.log_metric("model_accuracy", acc)
-
-    mkt_return = market_logs_test.values.ravel()
-    signals = np.zeros(len(probs))
-
-    for i in range(0, len(probs), horizon):
-        p = probs[i]
-        pos = 1 if p > best_thresholds['seuil_achat'] else (-1 if p < best_thresholds['seuil_short'] else 0)
-        end = min(i + horizon, len(probs))
-        signals[i:end] = pos
-
-    strat_ret = signals * mkt_return
-    cum_strat = np.exp(np.cumsum(strat_ret))
-    cum_mkt = np.exp(np.cumsum(mkt_return))
-
-    vol = strat_ret.std() * np.sqrt(252)
-    if vol > 0:
-        sharpe = (strat_ret.mean() * 252) / vol
-    else:
-        sharpe = 0
-
-    peak = np.maximum.accumulate(cum_strat)
-    drawdown = (cum_strat - peak) / peak
-    max_dd = drawdown.min()
-
-    mlflow.log_metric("trading_sharpe", float(sharpe))
-    mlflow.log_metric("trading_max_drawdown", float(max_dd))
-    mlflow.log_metric("trading_final_return", float(cum_strat[-1]))
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=X_test.index, y=cum_mkt,
-        name="S&P 500 (Test)",
-        line=dict(color='white', width=2), opacity=0.8
-    ))
-    fig.add_trace(go.Scatter(
-        x=X_test.index, y=cum_strat,
-        name=f"Strategie (A:{best_thresholds['seuil_achat']} S:{best_thresholds['seuil_short']})",
-        line=dict(color='gold', width=3)
-    ))
-
-    fig.update_layout(
-        title=f"Performance sur le set de TEST - Sharpe: {sharpe:.2f}",
-        template="plotly_dark",
-        xaxis_title="Date",
-        yaxis_title="Performance (Base 1.0)"
-    )
-
-    mlflow.log_figure(fig, "test_backtest_curve.html")
-
-    print(f"MCC: {mcc:.4f}, Sharpe: {sharpe:.2f}, MaxDD: {max_dd:.2f}")

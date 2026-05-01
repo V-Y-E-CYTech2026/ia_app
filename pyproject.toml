@@ -26,6 +26,7 @@ dependencies = [
     "scikit-learn>=1.8.0",
     "kedro-datasets[pandas-parquetdataset]>=9.3.0",
     "optuna>=4.8.0",
+    "streamlit>=1.57.0",
 ]
 
 [project.scripts]

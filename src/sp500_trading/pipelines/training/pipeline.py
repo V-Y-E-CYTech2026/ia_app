@@ -2,66 +2,29 @@ from kedro.pipeline import Pipeline, node, pipeline
 from .nodes import (
     hyperparameter_optimization,
     train_best_model,
-    evaluate_and_search_thresholds,
-    plot_feature_importance,
-    plot_model_calibration,
-    log_model_metrics
+    evaluate_and_search_thresholds
 )
 
 def create_pipeline(**kwargs) -> Pipeline:
     return pipeline(
         [
-            # Optimisation des hyperparamètres avec Optuna
             node(
                 func=hyperparameter_optimization,
-                inputs=["X_train", "y_train","params:horizon"],
+                inputs=["X_train", "y_train", "params:horizon", "params:model_type"],
                 outputs="best_hyperparams",
                 name="hyperparameter_optimization_node",
             ),
-
-            # Entraînement du modèle final avec les meilleurs paramètres
             node(
                 func=train_best_model,
-                inputs=["X_train", "y_train", "best_hyperparams","params:horizon"],
+                inputs=["X_train", "y_train", "best_hyperparams", "params:horizon", "params:model_type"],
                 outputs="best_model",
                 name="train_best_model_node",
             ),
-
-            # Recherche des seuils optimaux (Achat/Short) et Backtest
             node(
                 func=evaluate_and_search_thresholds,
-                inputs=["best_model", "X_val", "market_logs_val", "params:horizon"],
+                inputs=["best_model", "X_val", "market_logs_val", "params:horizon", "params:model_type"],
                 outputs="best_thresholds",
                 name="evaluate_thresholds_node",
-            ),
-
-
-            node(
-                func=plot_feature_importance,
-                inputs=["best_model", "X_train"],
-                outputs="feature_importance_report",
-                name="feature_importance_node",
-            ),
-
-            #Courbe de calibration (Fiabilité des probabilités)
-            node(
-                func=plot_model_calibration,
-                inputs=["best_model", "X_test", "y_test"],
-                outputs=None,
-                name="model_calibration_node",
-            ),
-            node(
-                func=log_model_metrics,
-                inputs=[
-                    "best_model",
-                    "X_test",
-                    "y_test",
-                    "best_thresholds",
-                    "market_logs_test",
-                    "params:horizon"
-                ],
-                outputs=None,
-                name="log_metrics_node",
             ),
         ]
     )

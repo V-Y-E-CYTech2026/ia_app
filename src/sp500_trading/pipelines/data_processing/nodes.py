@@ -6,8 +6,7 @@ from fredapi import Fred
 
 FRED_API_KEY = '88f89b6134c3f03d05307558eeeafcf7'
 
-
-def dl_data(name: str, start_date: str) -> pd.DataFrame:
+def dl_data(name: str, start_date: str, horizon: int) -> pd.DataFrame:
     df = yf.download(name, start=start_date)
 
     if isinstance(df.columns, pd.MultiIndex):
@@ -72,16 +71,14 @@ def dl_data(name: str, start_date: str) -> pd.DataFrame:
     except Exception as e:
         print(f"Error: {e}")
 
-    df['target_1'] = (df['Close'].shift(-1) > df["Close"]).astype(int)
-    df['target_2'] = np.log(df["Close"].shift(-1) / df["Close"])
-    df['5j'] = df['real_logs'].rolling(window=5).sum().shift(-5)
-    df['target_3'] = (df['5j'] > 0).astype(int)
+    df['hor_j'] = df['real_logs'].rolling(window=horizon).sum().shift(-horizon)
+    df['target_class'] = (df['hor_j'] > 0).astype(int)
+    df['target_reg'] = df['hor_j']
 
     df.dropna(inplace=True)
     return df
 
-
-def preprocess_data(data: pd.DataFrame, features: list, target_num: int):
+def preprocess_data(data: pd.DataFrame, features: list, model_type: str = "regression"):
     cols_to_fix = ['RSI', 'MFI', 'ADX', 'Volatility', 'Z_Score_10', 'Dist_SMA_10', 'Dist_SMA_50', 'Dist_SMA_200']
     data[cols_to_fix] = data[cols_to_fix].shift(1)
     data.dropna(inplace=True)
@@ -89,14 +86,13 @@ def preprocess_data(data: pd.DataFrame, features: list, target_num: int):
     X = data[features]
     market_logs = data[["real_logs"]]
 
-    if target_num == 1:
-        y = data[["target_1"]]
-    elif target_num == 2:
-        y = data[["target_2"]]
-    elif target_num == 3:
-        y = data[["target_3"]]
+    if model_type == "classification":
+        y = data[["target_class"]]
     else:
-        raise ValueError("Invalid target_num")
+        limit = data['target_reg'].std() * 3
+        data['target_reg'] = data['target_reg'].clip(-limit, limit)
+        y = data[["target_reg"]]
+        y = y*1000
 
     split_val = int(len(data) * 0.65)
     split_test = int(len(data) * 0.85)

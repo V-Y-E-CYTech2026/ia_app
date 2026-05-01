@@ -38,15 +38,15 @@ market_logs_val:
   type: pandas.ParquetDataset
   filepath: data/05_model_input/market_logs_val.parquet
 
-model_trained:
+best_model:
   type: pickle.PickleDataset
   filepath: data/06_models/sp500_xgb_model.pkl
 
-best_hyperparameters:
+best_hyperparams:
   type: json.JSONDataset
   filepath: data/07_model_output/best_params.json
 
-best_trading_params:
+best_thresholds:
   type: json.JSONDataset
-  filepath: data/07_model_output/best_trading_params.json
+  filepath: data/07_model_output/best_thresholds.json
 
