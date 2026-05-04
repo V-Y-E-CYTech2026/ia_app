@@ -1,33 +1,38 @@
 ticker_name: "^GSPC"
 start_date: "2000-01-01"
-model_type: "regression"
+model_type: "classification"
 
 features:
   - 'RSI'
-  - 'MFI'
   - 'ADX'
-  - 'Z_Score_10'
   - 'Volatility'
-  - 'Dist_SMA_10'
-  - 'Dist_SMA_50'
   - 'Dist_SMA_200'
-  - 'Log_Volume'
-  - 'Log_Vol_Change'
-  - 'Trend_Signal'
   - 'Ret_L1'
-  - 'Ret_L2'
-  - 'VIX'
   - 'VIX_Change'
   - 'Fed_Rate'
-  - 'Unemployment'
   - 'Inflation_var'
   - 'stress_fed'
-  - 'yield_10y'
-  - 'yield_2y'
   - 'Yield_Spread'
   - 'Yield_Spread_Change'
 
 # Paramètres globaux de trading
-horizon: 5
+horizon: 20
 frais: 0
 
+#features:
+#  - 'RSI'
+#  - 'ADX'
+#  - 'Z_Score_10'
+#  - 'Volatility'
+#  - 'Dist_SMA_10'
+#  - 'Dist_SMA_200'
+#  - 'Log_Vol_Change'
+#  - 'Trend_Signal'
+#  - 'Ret_L1'
+#  - 'Ret_L2'
+#  - 'VIX_Change'
+#  - 'Fed_Rate'
+#  - 'Inflation_var'
+#  - 'stress_fed'
+#  - 'Yield_Spread'
+#  - 'Yield_Spread_Change'

@@ -1,101 +1,88 @@
-# sp500_trading
 
-[![Powered by Kedro](https://img.shields.io/badge/powered_by-kedro-ffc900?logo=kedro)](https://kedro.org)
+# S&P 500 Prediction - XGBoost & Kedro
 
-## Overview
+Ce projet est une solution d'apprentissage automatique (Machine Learning) conçue pour prédire les mouvements de l'indice S&P 500 en utilisant l'algorithme XGBoost. Il repose sur le framework Kedro pour garantir une structure de code modulaire, reproductible et scalable.
 
-This is your new Kedro project, which was generated using `kedro 1.3.1`.
+## Auteurs
+* Youenn Boghaert
+* Victor ANDRE
+* Ewen DANO
 
-Take a look at the [Kedro documentation](https://docs.kedro.org) to get started.
+---
 
-## Rules and guidelines
+## Installation
 
-In order to get the best out of the template:
+Le projet utilise **uv** pour la gestion des dépendances et de l'environnement virtuel, ce qui permet une installation rapide et fiable.
 
-* Don't remove any lines from the `.gitignore` file we provide
-* Make sure your results can be reproduced by following a data engineering convention
-* Don't commit data to your repository
-* Don't commit any credentials or your local configuration to your repository. Keep all your credentials and local configuration in `conf/local/`
+Pour installer l'ensemble des dépendances en une seule commande, exécutez :
 
-## How to install dependencies
-
-Declare any dependencies in `requirements.txt` for `pip` installation.
-
-To install them, run:
-
-```
-pip install -r requirements.txt
+```bash
+uv sync
 ```
 
-## How to run your Kedro pipeline
+---
 
-You can run your Kedro project with:
+## Architecture du projet
 
-```
-kedro run
-```
+Le workflow est divisé en trois pipelines principaux :
 
-## How to test your Kedro project
+1. **data_processing** : Récupération des données brutes, nettoyage, gestion des valeurs manquantes et ingénierie des indicateurs techniques.
+2. **Training** : Entraînement du modèle XGBoost sur les données historiques.
+3. **Test** : Évaluation du modèle sur des données de test et calcul des métriques de performance.
 
-Have a look at the file `tests/test_run.py` for instructions on how to write your tests. You can run your tests as follows:
+---
 
-```
-pytest
-```
+## Configuration et Paramètres
 
-You can configure the coverage threshold in your project's `pyproject.toml` file under the `[tool.coverage.report]` section.
+Le comportement du projet est entièrement pilotable via le fichier `conf/base/parameters.yml`. Vous pouvez y modifier :
 
+* **L'horizon de prédiction** : Définir le nombre de jours à l'avance pour la prédiction.
+* **Le choix des features** : Sélectionner spécifiquement les colonnes et indicateurs que vous souhaitez injecter dans le modèle.
+* **Le type de modèle** : Régression ou classification
 
-## Project dependencies
+---
 
-To see and update the dependency requirements for your project use `requirements.txt`. You can install the project requirements with `pip install -r requirements.txt`.
+## Utilisation
 
-[Further information about project dependencies](https://docs.kedro.org/en/stable/kedro_project_setup/dependencies.html#project-specific-dependencies)
+Toutes les commandes doivent être lancées via l'outil Kedro.
 
-## How to work with Kedro and notebooks
-
-> Note: Using `kedro jupyter` or `kedro ipython` to run your notebook provides these variables in scope: `context`, 'session', `catalog`, and `pipelines`.
->
-> Jupyter, JupyterLab, and IPython are already included in the project requirements by default, so once you have run `pip install -r requirements.txt` you will not need to take any extra steps before you use them.
-
-### Jupyter
-To use Jupyter notebooks in your Kedro project, you need to install Jupyter:
-
-```
-pip install jupyter
+**Lancer l'intégralité du pipeline :**
+```bash
+uv run kedro run
 ```
 
-After installing Jupyter, you can start a local notebook server:
-
-```
-kedro jupyter notebook
-```
-
-### JupyterLab
-To use JupyterLab, you need to install it:
-
-```
-pip install jupyterlab
+**Lancer un pipeline spécifique :**
+```bash
+uv run kedro run --pipeline=preprocessing
 ```
 
-You can also start JupyterLab:
-
-```
-kedro jupyter lab
-```
-
-### IPython
-And if you want to run an IPython session:
-
-```
-kedro ipython
+**Visualiser le pipeline de données :**
+```bash
+uv run kedro viz
 ```
 
-### How to ignore notebook output cells in `git`
-To automatically strip out all output cell contents before committing to `git`, you can use tools like [`nbstripout`](https://github.com/kynan/nbstripout). For example, you can add a hook in `.git/config` with `nbstripout --install`. This will run `nbstripout` before anything is committed to `git`.
+---
 
-> *Note:* Your output cells will be retained locally.
+## MLflow
 
-## Package your Kedro project
+Le projet intègre **MLflow** pour le suivi des expériences. Cela permet d'enregistrer automatiquement les paramètres, les métriques (comme l'erreur quadratique ou la précision) et les artefacts du modèle à chaque exécution.
 
-[Further information about building project documentation and packaging your project](https://docs.kedro.org/en/stable/deploy/package_a_project/#package-an-entire-kedro-project)
+Pour lancer l'interface de visualisation MLflow :
+```bash
+uv run mlflow ui
+```
+
+---
+
+
+## Bonus : Application Interactive
+
+Le projet inclut un fichier `app.py`. Il s'agit d'une interface simplifiée permettant de piloter l'entraînement du modèle directement, offrant une alternative plus visuelle ou directe à la ligne de commande Kedro.
+On peut driectement choisir l'horzion et le type de modèle (régression ou classification)
+
+Pourlancer l'application :
+```bash
+uv run python app.py
+```
+
+

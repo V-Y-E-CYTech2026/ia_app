@@ -2,9 +2,8 @@ import pandas as pd
 import numpy as np
 import mlflow
 import plotly.graph_objects as go
-from sklearn.metrics import accuracy_score, matthews_corrcoef, precision_score, recall_score, f1_score
+from sklearn.metrics import accuracy_score, matthews_corrcoef, precision_score, recall_score, f1_score, confusion_matrix, roc_auc_score, log_loss, brier_score_loss
 from sklearn.calibration import calibration_curve
-
 
 def plot_feature_importance(model, X_train, model_type="classification"):
     mlflow.set_tag("mlflow.runName", f"importance_variables_{model_type}")
@@ -30,7 +29,6 @@ def plot_feature_importance(model, X_train, model_type="classification"):
 
     return df_imp
 
-
 def plot_model_calibration(model, X_test, y_test, model_type="classification"):
     mlflow.set_tag("mlflow.runName", f"calibration_{model_type}")
     mlflow.set_tag("pipeline", "model_evaluation")
@@ -47,9 +45,7 @@ def plot_model_calibration(model, X_test, y_test, model_type="classification"):
         fig.update_layout(title="Courbe de Calibration", template="plotly_dark")
         mlflow.log_figure(fig, "calibration_curve.html")
 
-
-def evaluate_test_metrics(model, X_test, y_test, best_thresholds, market_logs_test, horizon,
-                          model_type="classification"):
+def evaluate_test_metrics(model, X_test, y_test, best_thresholds, market_logs_test, horizon, model_type="classification"):
     mlflow.set_tag("mlflow.runName", f"evaluation_test_{model_type}")
     mlflow.set_tag("pipeline", "model_evaluation")
     mlflow.set_tag("etape", "metriques_test")
@@ -58,16 +54,25 @@ def evaluate_test_metrics(model, X_test, y_test, best_thresholds, market_logs_te
         probs = model.predict_proba(X_test)[:, 1]
         preds = (probs > best_thresholds['seuil_achat']).astype(int)
 
-        # Métriques ML de base
         mlflow.log_metric("model_mcc", matthews_corrcoef(y_test, preds))
         mlflow.log_metric("model_accuracy", accuracy_score(y_test, preds))
-
-        # Nouvelles métriques ML
         mlflow.log_metric("model_precision", precision_score(y_test, preds, zero_division=0))
         mlflow.log_metric("model_recall", recall_score(y_test, preds, zero_division=0))
         mlflow.log_metric("model_f1_score", f1_score(y_test, preds, zero_division=0))
+        mlflow.log_metric("model_roc_auc", roc_auc_score(y_test, probs))
+        mlflow.log_metric("model_log_loss", log_loss(y_test, probs))
+
+
+        cm = confusion_matrix(y_test, preds)
+        fig_cm = go.Figure(data=go.Heatmap(z=cm, x=['Pred 0', 'Pred 1'], y=['True 0', 'True 1'], colorscale='Viridis', text=cm, texttemplate="%{text}"))
+        fig_cm.update_layout(title="Confusion matrix", template="plotly_dark")
+        mlflow.log_figure(fig_cm, "confusion_matrix.html")
     else:
-        probs = model.predict(X_test) / 1000
+        raw_preds = model.predict(X_test)
+        probs = raw_preds / 1000
+        mlflow.log_metric("model_mse", mean_squared_error(y_test, raw_preds))
+        mlflow.log_metric("model_mae", mean_absolute_error(y_test, raw_preds))
+        mlflow.log_metric("model_r2_score", r2_score(y_test, raw_preds))
 
     mkt_return = market_logs_test.values.ravel()
     signals = np.zeros(len(probs))
@@ -82,7 +87,6 @@ def evaluate_test_metrics(model, X_test, y_test, best_thresholds, market_logs_te
     cum_strat = np.exp(np.cumsum(strat_ret))
     cum_mkt = np.exp(np.cumsum(mkt_return))
 
-    # --- Métriques de risque classiques ---
     vol = strat_ret.std() * np.sqrt(252)
     if vol > 0:
         sharpe = (strat_ret.mean() * 252) / vol
@@ -93,39 +97,36 @@ def evaluate_test_metrics(model, X_test, y_test, best_thresholds, market_logs_te
     drawdown = (cum_strat - peak) / peak
     max_dd = drawdown.min()
 
-    # --- Nouvelles métriques de Trading ---
-
-    # 1. Ratio de Sortino (Volatilité à la baisse uniquement)
     downside_returns = strat_ret[strat_ret < 0]
     downside_vol = downside_returns.std() * np.sqrt(252)
     sortino = (strat_ret.mean() * 252) / downside_vol if downside_vol > 0 else 0
 
-    # 2. Ratio de Calmar (Rendement annuel / Max Drawdown)
     n_days = len(strat_ret)
     annualized_return = (cum_strat[-1]) ** (252 / n_days) - 1
     calmar = annualized_return / abs(max_dd) if max_dd < 0 else 0
 
-    # 3. Win Rate (Taux de réussite des jours où on est investi)
     active_days = strat_ret[signals != 0]
     win_rate = len(active_days[active_days > 0]) / len(active_days) if len(active_days) > 0 else 0
 
-    # Logs MLflow pour le trading
+    trade_changes = np.diff(signals, prepend=0)
+    number_of_trades = np.count_nonzero(trade_changes)
+
+    gross_profit = strat_ret[strat_ret > 0].sum()
+    gross_loss = abs(strat_ret[strat_ret < 0].sum())
+    profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
+
     mlflow.log_metric("trading_sharpe", float(sharpe))
     mlflow.log_metric("trading_max_drawdown", float(max_dd))
     mlflow.log_metric("trading_final_return", float(cum_strat[-1]))
     mlflow.log_metric("trading_sortino", float(sortino))
     mlflow.log_metric("trading_calmar", float(calmar))
     mlflow.log_metric("trading_win_rate", float(win_rate))
+    mlflow.log_metric("trading_number_of_trades", float(number_of_trades))
+    mlflow.log_metric("trading_profit_factor", float(profit_factor))
 
-    # Graphique mis à jour avec le Sortino dans le titre
     fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(x=X_test.index, y=cum_mkt, name="S&P 500 (Test)", line=dict(color='white', width=2), opacity=0.8))
-    fig.add_trace(go.Scatter(x=X_test.index, y=cum_strat,
-                             name=f"Strategie (A:{best_thresholds['seuil_achat']} S:{best_thresholds['seuil_short']})",
-                             line=dict(color='gold', width=3)))
+    fig.add_trace(go.Scatter(x=X_test.index, y=cum_mkt, name="S&P 500 (Test)", line=dict(color='white', width=2), opacity=0.8))
+    fig.add_trace(go.Scatter(x=X_test.index, y=cum_strat, name=f"Strategie (A:{best_thresholds['seuil_achat']} S:{best_thresholds['seuil_short']})", line=dict(color='gold', width=3)))
 
-    fig.update_layout(title=f"Performance TEST - Sharpe: {sharpe:.2f} | Sortino: {sortino:.2f}", template="plotly_dark",
-                      xaxis_title="Date",
-                      yaxis_title="Performance")
+    fig.update_layout(title=f"Performance TEST - Sharpe: {sharpe:.2f} | Sortino: {sortino:.2f}", template="plotly_dark", xaxis_title="Date", yaxis_title="Performance")
     mlflow.log_figure(fig, "test_backtest_curve.html")
