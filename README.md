@@ -4,7 +4,7 @@
 Ce projet est une solution d'apprentissage automatique (Machine Learning) conçue pour prédire les mouvements de l'indice S&P 500 en utilisant l'algorithme XGBoost. Il repose sur le framework Kedro pour garantir une structure de code modulaire, reproductible et scalable.
 
 ## Auteurs
-* Youenn Boghaert
+* Youenn Bogaer
 * Victor ANDRE
 * Ewen DANO
 
