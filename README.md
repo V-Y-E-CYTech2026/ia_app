@@ -85,4 +85,4 @@ Pourlancer l'application :
 uv run python app.py
 ```
 
-
+Dans /doc/ on peut retrouver notre présentation et notre rapport sur ce projet

@@ -62,7 +62,7 @@ def hyperparameter_optimization(X_train, y_train, horizon, model_type="classific
 
     sampler = TPESampler(seed=42)
     study = optuna.create_study(direction="maximize", sampler=sampler)
-    study.optimize(objective, n_trials=400)
+    study.optimize(objective, n_trials=200)
 
     mlflow.log_params(study.best_params)
     mlflow.log_metric("best_cv_score", study.best_value)
