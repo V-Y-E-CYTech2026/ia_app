@@ -82,7 +82,7 @@ On peut driectement choisir l'horzion et le type de modèle (régression ou clas
 
 Pourlancer l'application :
 ```bash
-uv run python app.py
+uv run streamlit app.py
 ```
 
-Dans /doc/ on peut retrouver notre présentation et notre rapport sur ce projet
+Dans /doc/ on peut retrouver notre présentation et notre rapport sur ce projet.
